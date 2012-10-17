@@ -1,13 +1,21 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
-	"http"
-	"template"
-	"os"
+	"net/http"
+	"html/template"
+	ttpl "text/template"
 	"bytes"
 	"appengine"
 	"appengine/datastore"
 )
+
+type scmsError struct {
+	err string
+}
 
 var created = false
 var paths = make(map[string]bool)
@@ -23,13 +31,13 @@ func init() {
 	http.HandleFunc("/logout", logoutHandler)
 }
 
-func error(c appengine.Context, w http.ResponseWriter, err os.Error) {
+func errorX(c appengine.Context, w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusInternalServerError)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	//	io.WriteString(w, "Oops! Internal Server Error\n")
 	//	io.WriteString(w, err.String())
 	c.Errorf("%v", err)
-	http.Error(w, err.String(), http.StatusInternalServerError)
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 func error404(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +62,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/"+config.Default.StringID(), http.StatusFound)
 			return
 		}
-		error(c, w, os.NewError("no default page is specified"))
+		errorX(c, w, &scmsError{"no default page is specified"})
 		return
 	} else if err := exportFile(c, w, r.URL.Path[1:]); err == nil {
 		return
@@ -67,20 +75,20 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		created = true
 	}
 	if _, ok := paths[r.URL.Path]; ok {
-		http.Redirect(w, r, r.URL.RawPath, http.StatusFound)
+		http.Redirect(w, r, r.URL.RawQuery, http.StatusFound)
 	} else {
 		http.NotFound(w, r)
 	}
 }
 
-func createHandlers(c appengine.Context) os.Error {
+func createHandlers(c appengine.Context) error {
 	q := datastore.NewQuery("$Pages")
 	var p []Page
 	q.GetAll(c, &p)
 
 	if len(p) == 0 {
 		c.Infof("pages are not found, redirecting to the editor")
-		return os.NewError("pages not found")
+		return &scmsError{"pages not found"}
 	}
 	c.Infof("pages: %#v", p)
 	for _, v := range p {
@@ -96,15 +104,15 @@ func createHandlers(c appengine.Context) os.Error {
 		}
 		c.Infof("handling  page: %#v, handler: %#v", v.Name, h)
 		http.HandleFunc("/"+v.Name, h)
-		paths["/"+v.Name] = true, true
+		paths["/"+v.Name] = true
 	}
 	if len(paths) == 0 {
-		return os.NewError("pages not found")
+		return &scmsError{"pages not found"}
 	}
 	return nil
 }
 
-func createHandler(c appengine.Context, p Page) (func(w http.ResponseWriter, r *http.Request), os.Error) {
+func createHandler(c appengine.Context, p Page) (func(w http.ResponseWriter, r *http.Request), error) {
 	b := bytes.NewBuffer(nil)
 	var base File
 	if err := datastore.Get(c, datastore.NewKey(c, "$Files", p.Base, 0, nil), &base); err != nil {
@@ -116,7 +124,7 @@ func createHandler(c appengine.Context, p Page) (func(w http.ResponseWriter, r *
 		return nil, err
 	}
 	c.Infof("template: %q", string(templ.Data))
-	if tpl, err := template.New(p.Base).Parse(string(base.Data)); err != nil {
+	if tpl, err := ttpl.New(p.Base).Parse(string(base.Data)); err != nil {
 		return nil, err
 	} else if err := tpl.Execute(b, string(templ.Data)); err != nil {
 		return nil, err
@@ -150,3 +158,6 @@ func createHandler(c appengine.Context, p Page) (func(w http.ResponseWriter, r *
 	}, nil
 }
 
+func (this scmsError) Error() string {
+	return this.err
+}

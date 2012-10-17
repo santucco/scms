@@ -1,8 +1,12 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
-	"http"
-	"template"
+	"net/http"
+	"html/template"
 	"os"
 	"io"
 	"bytes"
@@ -68,7 +72,7 @@ func filesHandler(w http.ResponseWriter, r *http.Request) {
 	var key *datastore.Key
 	if id := r.URL.Query().Get("id"); len(id) != 0 {
 		if k, err := datastore.DecodeKey(id); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else {
 			key = k
@@ -79,7 +83,7 @@ func filesHandler(w http.ResponseWriter, r *http.Request) {
 		data.ctx = c
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := filesTemplate.Execute(w, &data); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 		}
 		return
 	} else if r.Method != "POST" {
@@ -89,30 +93,30 @@ func filesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("action") == "upload" {
 		file, _, err := r.FormFile("file")
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			c.Errorf("can't get an archive with imported files: %q", err)
 			return
 		}
 		if n, err := file.Seek(0, os.SEEK_END); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else if err := importFiles(c, file, n); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else if def := r.FormValue("default"); len(def) != 0 {
 		if err := setDefault(c, r, def); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else {
 		if key == nil {
 			if err := newFile(c, r); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 				return
 			}
 		} else if err := editFile(c, r, key); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	}
@@ -120,11 +124,11 @@ func filesHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, r.URL.Path, http.StatusFound)
 }
 
-func newFile(c appengine.Context, r *http.Request) os.Error {
+func newFile(c appengine.Context, r *http.Request) error {
 	c.Infof("newFile: %#v", r)
 	name := r.FormValue("name")
 	if len(name) == 0 {
-		return os.NewError("field 'Name' must not be empty")
+		return &scmsError{"field 'Name' must not be empty"}
 	}
 	file, _, err := r.FormFile("file")
 	if err != nil {
@@ -137,7 +141,7 @@ func newFile(c appengine.Context, r *http.Request) os.Error {
 	if n, err := file.Seek(0, os.SEEK_END); err != nil {
 		return err
 	} else if n >= 0x100000 {
-		return os.NewError("file is too long")
+		return &scmsError{"file is too long"}
 	} else {
 		f.Data = make([]byte, n)
 	}
@@ -152,7 +156,7 @@ func newFile(c appengine.Context, r *http.Request) os.Error {
 	return nil
 }
 
-func editFile(c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
+func editFile(c appengine.Context, r *http.Request, k *datastore.Key) error {
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		return nil
@@ -164,7 +168,7 @@ func editFile(c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
 	if n, err := file.Seek(0, os.SEEK_END); err != nil {
 		return err
 	} else if n >= 0x100000 {
-		return os.NewError("file is too long")
+		return &scmsError{"file is too long"}
 	} else {
 		f.Data = make([]byte, n)
 	}
@@ -178,7 +182,7 @@ func editFile(c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
 	return nil
 }
 
-func exportFile(c appengine.Context, w http.ResponseWriter, fn string) os.Error {
+func exportFile(c appengine.Context, w http.ResponseWriter, fn string) error {
 	var f File
 	c.Infof("exporting file %q", fn)
 	if err := datastore.Get(c, datastore.NewKey(c, "$Files", fn, 0, nil), &f); err != nil {
@@ -192,7 +196,7 @@ func exportFile(c appengine.Context, w http.ResponseWriter, fn string) os.Error 
 	return nil
 }
 
-func exportFiles(c appengine.Context, w io.Writer) os.Error {
+func exportFiles(c appengine.Context, w io.Writer) error {
 	q := datastore.NewQuery("$Files")
 	var f []File
 	if _, err := q.GetAll(c, &f); err != nil {
@@ -215,7 +219,7 @@ func exportFiles(c appengine.Context, w io.Writer) os.Error {
 	return nil
 }
 
-func importFiles(c appengine.Context, file io.ReaderAt, size int64) os.Error {
+func importFiles(c appengine.Context, file io.ReaderAt, size int64) error {
 	r, err := zip.NewReader(file, size)
 	if err != nil {
 		return err

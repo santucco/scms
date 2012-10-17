@@ -1,10 +1,13 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
-	"os"
 	"fmt"
 	"strconv"
-	"http"
+	"net/http"
 	"appengine"
 	"appengine/datastore"
 )
@@ -41,7 +44,7 @@ func (this Cursor) Fields() []string {
 	m := make(map[string]bool)
 	for _, v := range this {
 		for k, _ := range v.Data {
-			m[k] = true, true
+			m[k] = true
 		}
 	}
 	out := make([]string, 0)
@@ -51,7 +54,7 @@ func (this Cursor) Fields() []string {
 	return out
 }
 
-func (this Cursor) save(c appengine.Context, kind string, parent *datastore.Key) os.Error {
+func (this Cursor) save(c appengine.Context, kind string, parent *datastore.Key) error {
 	for _, v := range this {
 		//c.Infof("saving %#v", v)
 		if err := v.save(c, kind, parent); err != nil {
@@ -61,10 +64,10 @@ func (this Cursor) save(c appengine.Context, kind string, parent *datastore.Key)
 	return nil
 }
 
-func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interface{}, lim interface{}) (Cursor, os.Error) {
+func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interface{}, lim interface{}) (Cursor, error) {
 	var out Cursor
 	if this.ctx == nil {
-		return out, os.NewError("invalid context")
+		return out, &scmsError{"invalid context"}
 	}
 	kind, ok := k.(string)
 	if !ok {
@@ -78,7 +81,7 @@ func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interf
 	switch off.(type){
 		case int: offset = off.(int)
 		case string: 
-			var err os.Error
+			var err error
 			offset, err = strconv.Atoi(off.(string))
 			if err != nil {
 				return nil, err
@@ -90,7 +93,7 @@ func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interf
 	switch lim.(type){
 		case int: limit = lim.(int)
 		case string: 
-			var err os.Error
+			var err error
 			limit, err = strconv.Atoi(lim.(string))
 			if err != nil {
 				return nil, err
@@ -102,7 +105,7 @@ func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interf
 	switch p.(type) {
 	case string:
 		if len(p.(string)) != 0 {
-			var err os.Error
+			var err error
 			parent, err = datastore.DecodeKey(p.(string))
 			if err != nil {
 				return out, err
@@ -130,7 +133,7 @@ func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interf
 		return out, err
 	}
 	for i, v := range d {
-		if !keys[i].Parent().Eq(parent) {
+		if !keys[i].Parent().Equal(parent) {
 			continue
 		}
 		val := Value{
@@ -143,17 +146,17 @@ func (this *Context) Get(k interface{}, o interface{}, p interface{}, off interf
 	return out, nil
 }
 
-func (this *Context) GetByKey(k interface{}) (Value, os.Error) {
+func (this *Context) GetByKey(k interface{}) (Value, error) {
 	var out Value
 	if this.ctx == nil {
-		return out, os.NewError("invalid context")
+		return out, &scmsError{"invalid context"}
 	}
 	var key *datastore.Key
 	switch k.(type) {
 	case *datastore.Key:
 		key = k.(*datastore.Key)
 	case string:
-		var err os.Error
+		var err error
 		key, err = datastore.DecodeKey(k.(string))
 		if err != nil {
 			return out, err
@@ -175,10 +178,10 @@ func (this *Context) GetByKey(k interface{}) (Value, os.Error) {
 	return out, nil
 }
 
-func (this *Context) GetByKeyFields(k interface{}, s interface{}, i interface{}, p interface{}) (Value, os.Error) {
+func (this *Context) GetByKeyFields(k interface{}, s interface{}, i interface{}, p interface{}) (Value, error) {
 	var out Value
 	if this.ctx == nil {
-		return out, os.NewError("invalid context")
+		return out, &scmsError{"invalid context"}
 	}
 	kind, ok := k.(string)
 	if !ok {
@@ -193,8 +196,8 @@ func (this *Context) GetByKeyFields(k interface{}, s interface{}, i interface{},
 		case int:	iid = int64(i.(int))
 		case int64:	iid = i.(int64)
 		case string: 
-			var err os.Error
-			iid, err = strconv.Atoi64(i.(string))
+			var err error
+			iid, err = strconv.ParseInt(i.(string),10,64)
 			if err != nil {
 				return out, err
 			}
@@ -205,7 +208,7 @@ func (this *Context) GetByKeyFields(k interface{}, s interface{}, i interface{},
 	switch p.(type) {
 	case string:
 		if len(p.(string)) != 0 {
-			var err os.Error
+			var err error
 			parent, err = datastore.DecodeKey(p.(string))
 			if err != nil {
 				return out, err
@@ -218,9 +221,9 @@ func (this *Context) GetByKeyFields(k interface{}, s interface{}, i interface{},
 	return this.GetByKey(key)
 }
 
-func (this *Context) GetPages(k interface{}, l interface{}) ([]Paging, os.Error) {
+func (this *Context) GetPages(k interface{}, l interface{}) ([]Paging, error) {
 	if this.ctx == nil {
-		return nil, os.NewError("invalid context")
+		return nil, &scmsError{"invalid context"}
 	}
 	kind, ok := k.(string)
 	if !ok {
@@ -230,7 +233,7 @@ func (this *Context) GetPages(k interface{}, l interface{}) ([]Paging, os.Error)
 	switch l.(type){
 		case int: limit = l.(int)
 		case string: 
-			var err os.Error
+			var err error
 			limit, err = strconv.Atoi(l.(string))
 			if err != nil {
 				return nil, err
@@ -256,13 +259,13 @@ func (this *Context) GetPages(k interface{}, l interface{}) ([]Paging, os.Error)
 	return out, nil
 }
 
-func (this *Context) GetPrev() (string, os.Error) {
+func (this *Context) GetPrev() (string, error) {
 	if this.ctx == nil {
-		return "", os.NewError("invalid context")
+		return "", &scmsError{"invalid context"}
 	}
 	r, ok := this.ctx.Request().(*http.Request)
 	if !ok {
-		return "", os.NewError("invalid request")
+		return "", &scmsError{"invalid request"}
 	}
 	off := r.URL.Query().Get("offset")
 	lim := r.URL.Query().Get("limit")
@@ -272,17 +275,17 @@ func (this *Context) GetPrev() (string, os.Error) {
 	if len(lim) == 0 {
 		return "", fmt.Errorf("'limit' not found")
 	}
-	offset, err := strconv.Atoui(off)
+	offset, err := strconv.ParseUint(off,10,32)
 	if err != nil {
 		return "", err
 	} else if offset == 0 {
 		return "", nil
 	}
-	limit, err := strconv.Atoui(lim)
+	limit, err := strconv.ParseUint(lim,10,32)
 	if err != nil {
 		return "", err
 	} else if limit == 0 {
-		return "", os.NewError("limit must be not zero")
+		return "", &scmsError{"limit must be not zero"}
 	}
 	if offset < limit {
 		offset = 0
@@ -292,9 +295,9 @@ func (this *Context) GetPrev() (string, os.Error) {
 	return fmt.Sprintf("offset=%v&limit=%v", offset, limit), nil
 }
 
-func (this *Context) GetNext(k interface{}) (string, os.Error) {
+func (this *Context) GetNext(k interface{}) (string, error) {
 	if this.ctx == nil {
-		return "", os.NewError("invalid context")
+		return "", &scmsError{"invalid context"}
 	}
 	kind, ok := k.(string)
 	if !ok {
@@ -302,7 +305,7 @@ func (this *Context) GetNext(k interface{}) (string, os.Error) {
 	}
 	r, ok := this.ctx.Request().(*http.Request)
 	if !ok {
-		return "", os.NewError("invalid request")
+		return "", &scmsError{"invalid request"}
 	}
 	off := r.URL.Query().Get("offset")
 	lim := r.URL.Query().Get("limit")
@@ -317,25 +320,25 @@ func (this *Context) GetNext(k interface{}) (string, os.Error) {
 	if err != nil {
 		return "", err
 	}
-	offset, err := strconv.Atoui(off)
+	offset, err := strconv.ParseUint(off,10,32)
 	if err != nil {
 		return "", err
 	}
-	limit, err := strconv.Atoui(lim)
+	limit, err := strconv.ParseUint(lim,10,32)
 	if err != nil {
 		return "", err
 	} else if limit == 0 {
-		return "", os.NewError("limit must be not zero")
+		return "", &scmsError{"limit must be not zero"}
 	}
-	if offset+limit > uint(c) {
+	if offset+limit > uint64(c) {
 		return "", nil
 	}
 	return fmt.Sprintf("offset=%v&limit=%v", offset+limit, limit), nil
 }
 
-func (this *Context) GetValue(v interface{}) (string, os.Error) {
+func (this *Context) GetValue(v interface{}) (string, error) {
 	if this.ctx == nil {
-		return "", os.NewError("invalid context")
+		return "", &scmsError{"invalid context"}
 	}
 	value, ok := v.(string)
 	if !ok {
@@ -343,25 +346,25 @@ func (this *Context) GetValue(v interface{}) (string, os.Error) {
 	}
 	r, ok := this.ctx.Request().(*http.Request)
 	if !ok {
-		return "", os.NewError("invalid request")
+		return "", &scmsError{"invalid request"}
 	}
 	return r.URL.Query().Get(value), nil
 }
 
-func (this *Context) GetTree(k interface{}) (Cursor, os.Error) {
+func (this *Context) GetTree(k interface{}) (Cursor, error) {
 	var out Cursor
 	if this.ctx == nil {
-		return out, os.NewError("invalid context")
+		return out, &scmsError{"invalid context"}
 	}
 	return this.getTree(k, nil)
 }
 
-func (this *Context) getTree(k interface{}, p *datastore.Key) (Cursor, os.Error) {
+func (this *Context) getTree(k interface{}, p *datastore.Key) (Cursor, error) {
 	var out Cursor
 	if this.ctx == nil {
-		return out, os.NewError("invalid context")
+		return out, &scmsError{"invalid context"}
 	}
-	var err os.Error
+	var err error
 	out, err = this.Get(k, "", p, 0, 0)
 	if err != nil {
 		return out, err
@@ -377,15 +380,15 @@ func (this *Context) getTree(k interface{}, p *datastore.Key) (Cursor, os.Error)
 	return out, err
 }
 
-func (this *entity) Load(c <-chan datastore.Property) os.Error {
+func (this *entity) Load(c <-chan datastore.Property) error {
 	this.data = make(Values)
 	for p := range c {
-		this.data[p.Name] = p.Value, true
+		this.data[p.Name] = p.Value
 	}
 	return nil
 }
 
-func (this *entity) Save(c chan<- datastore.Property) os.Error {
+func (this *entity) Save(c chan<- datastore.Property) error {
 	for k, v := range this.data {
 		c <- datastore.Property{
 			Name:  k,
@@ -396,44 +399,44 @@ func (this *entity) Save(c chan<- datastore.Property) os.Error {
 	return nil
 }
 
-func (this *Value) Get(k interface{}, order interface{}, p interface{}, offset interface{}, limit interface{}) (Cursor, os.Error) {
+func (this *Value) Get(k interface{}, order interface{}, p interface{}, offset interface{}, limit interface{}) (Cursor, error) {
 	return this.ctx.Get(k, order, p, offset, limit)
 }
 
-func (this *Value) GetByKey(k interface{}) (Value, os.Error) {
+func (this *Value) GetByKey(k interface{}) (Value, error) {
 	return this.ctx.GetByKey(k)
 }
-func (this *Value) GetByKeyFields(kind interface{}, sid interface{}, iid interface{}, parent interface{}) (Value, os.Error) {
+func (this *Value) GetByKeyFields(kind interface{}, sid interface{}, iid interface{}, parent interface{}) (Value, error) {
 	return this.ctx.GetByKeyFields(kind, sid, iid, parent)
 }
 
-func (this *Value) GetPages(kind interface{}, limit interface{}) ([]Paging, os.Error) {
+func (this *Value) GetPages(kind interface{}, limit interface{}) ([]Paging, error) {
 	return this.ctx.GetPages(kind, limit)
 }
 
-func (this *Value) GetPrev() (string, os.Error) {
+func (this *Value) GetPrev() (string, error) {
 	return this.ctx.GetPrev()
 }
 
-func (this *Value) GetNext(kind interface{}) (string, os.Error) {
+func (this *Value) GetNext(kind interface{}) (string, error) {
 	return this.ctx.GetNext(kind)
 }
 
-func (this *Value) GetValue(value interface{}) (string, os.Error) {
+func (this *Value) GetValue(value interface{}) (string, error) {
 	return this.ctx.GetValue(value)
 }
 
-func (this *Value) GetTree(k interface{}) (Cursor, os.Error) {
+func (this *Value) GetTree(k interface{}) (Cursor, error) {
 	return this.ctx.GetTree(k)
 }
 
-func (this *Value) save(c appengine.Context, kind string, parent *datastore.Key) os.Error {
+func (this *Value) save(c appengine.Context, kind string, parent *datastore.Key) error {
 	if this.Key == nil {
 		this.Key = datastore.NewIncompleteKey(c, kind, parent)
 	}
 	e := entity{data: this.Data}
 	c.Infof("kind %q, parent %q", kind, parent)
-	var err os.Error
+	var err error
 	this.Key, err = datastore.Put(c, this.Key, &e)
 	if err != nil {
 		c.Errorf("this: %#v, entity: %v, err: %q", this, e, err)

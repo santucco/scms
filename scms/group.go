@@ -1,10 +1,13 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
-	"os"
 	"fmt"
-	"http"
-	"template"
+	"net/http"
+	"html/template"
 	"strconv"
 	"time"
 	"appengine"
@@ -12,7 +15,7 @@ import (
 	"appengine/user"
 )
 
-var groupSet = template.SetMust(new(template.Set).Funcs(funcMap).Parse(
+var groupSet = template.Must(template.Must(template.New("groupSet").Funcs(funcMap).Parse(
 	`
 {{define "recursion"}} 
 	{{range .}}
@@ -116,7 +119,7 @@ var groupSet = template.SetMust(new(template.Set).Funcs(funcMap).Parse(
 	</fieldset>	
 	{{end}}
 {{end}}
-`)).Add(template.Must(template.New("group").Parse(
+`)).New("group").Parse(
 	`
 <html>
 <body>
@@ -166,7 +169,7 @@ var groupSet = template.SetMust(new(template.Set).Funcs(funcMap).Parse(
 {{end}}
 </body>
 </html>
-`)))
+`))
 
 func groupHandler(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
@@ -189,7 +192,7 @@ func groupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(id) != 0 {
 		if k, err := datastore.DecodeKey(id); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else {
 			key = k
@@ -199,8 +202,8 @@ func groupHandler(w http.ResponseWriter, r *http.Request) {
 		var data Context
 		data.ctx = c
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := groupSet.Execute(w, "group", &data); err != nil {
-			error(c, w, err)
+		if err := groupSet.Execute(w, &data); err != nil {
+			errorX(c, w, err)
 		}
 		return
 	} else if r.Method != "POST" {
@@ -213,34 +216,34 @@ func groupHandler(w http.ResponseWriter, r *http.Request) {
 		if key == nil {
 			k, err := datastore.DecodeKey(gid)
 			if err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 				return
 			}
 			var g Group
 			if err := datastore.Get(c, k, &g); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 			}
 			group = g.Name
 		} else {
 			group = key.Kind()
 		}
 		if err := newRecord(c, r, group, key); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else {
 		if err := editRecord(c, r, key); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	}
 	r.URL.RawQuery = ""
 	r.URL.Query().Add("gid", gid)
-	c.Infof("RawPath: %q", r.URL.RawPath)
-	http.Redirect(w, r, r.URL.RawPath, http.StatusFound)
+	c.Infof("RawQuery: %q", r.URL.RawQuery)
+	http.Redirect(w, r, r.URL.RawQuery, http.StatusFound)
 }
 
-func newRecord(c appengine.Context, r *http.Request, g string, k *datastore.Key) os.Error {
+func newRecord(c appengine.Context, r *http.Request, g string, k *datastore.Key) error {
 	name := template.HTMLEscapeString(r.FormValue("name"))
 	c.Infof("newRecord: %v, %q", k, name)
 	if name == "NewName" {
@@ -248,22 +251,22 @@ func newRecord(c appengine.Context, r *http.Request, g string, k *datastore.Key)
 	}
 	c.Infof("newRecord: %v, %q", k, name)
 	if len(name) == 0 {
-		return os.NewError("field 'Name' must not be empty")
+		return &scmsError{"field 'Name' must not be empty"}
 	}
 	val := template.HTMLEscapeString(r.FormValue("value"))
 	var v interface{}
-	var err os.Error
+	var err error
 	switch r.FormValue("type") {
 	case "string":
 		v = val
 	case "bool":
-		v, err = strconv.Atob(val)
+		v, err = strconv.ParseBool(val)
 	case "integer":
-		v, err = strconv.Atoi64(val)
+		v, err = strconv.ParseInt(val,10,64)
 	case "float":
-		v, err = strconv.Atof64(val)
+		v, err = strconv.ParseFloat(val,64)
 	case "time":
-		v = datastore.SecondsToTime(time.Seconds())
+		v = time.Now()
 	case "key":
 		v, err = datastore.DecodeKey(val)
 	default:
@@ -285,11 +288,11 @@ func newRecord(c appengine.Context, r *http.Request, g string, k *datastore.Key)
 	return nil
 }
 
-func editRecord(c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
+func editRecord(c appengine.Context, r *http.Request, k *datastore.Key) error {
 	name := template.HTMLEscapeString(r.FormValue("name"))
 	c.Infof("editRecord: %v, %q", k, name)
 	var v interface{}
-	var err os.Error
+	var err error
 	val := template.HTMLEscapeString(r.FormValue("value"))
 	if name == "NewName" {
 		name = template.HTMLEscapeString(r.FormValue("newname"))
@@ -298,17 +301,17 @@ func editRecord(c appengine.Context, r *http.Request, k *datastore.Key) os.Error
 			case "string":
 				v = val
 			case "bool":
-				v, err = strconv.Atob(val)
+				v, err = strconv.ParseBool(val)
 			case "integer":
-				v, err = strconv.Atoi64(val)
+				v, err = strconv.ParseInt(val,10,64)
 			case "float":
-				v, err = strconv.Atof64(val)
+				v, err = strconv.ParseFloat(val,64)
 			case "time":
-				v = datastore.SecondsToTime(time.Seconds())
+				v = time.Now()
 			case "key":
 				v, err = datastore.DecodeKey(val)
 			default:
-				err = os.NewError("invalid field type")
+				err = &scmsError{"invalid field type"}
 			}
 			if err != nil {
 				return err
@@ -337,17 +340,17 @@ func editRecord(c appengine.Context, r *http.Request, k *datastore.Key) os.Error
 		case string:
 			v = val
 		case bool:
-			v, err = strconv.Atob(val)
+			v, err = strconv.ParseBool(val)
 		case int64:
-			v, err = strconv.Atoi64(val)
+			v, err = strconv.ParseInt(val,10,64)
 		case float64:
-			v, err = strconv.Atof64(val)
-		case datastore.Time:
-			v = datastore.SecondsToTime(time.Seconds())
+			v, err = strconv.ParseFloat(val,64)
+		case time.Time:
+			v = time.Now()
 		case datastore.Key:
 			v, err = datastore.DecodeKey(val)
 		default:
-			err = os.NewError("invalid field type")
+			err = &scmsError{"invalid field type"}
 		}
 		if err != nil {
 			return err
@@ -365,25 +368,25 @@ func editRecord(c appengine.Context, r *http.Request, k *datastore.Key) os.Error
 		case "string":
 			e.data[k] = val
 		case "bool":
-			e.data[k], err = strconv.Atob(val)
+			e.data[k], err = strconv.ParseBool(val)
 		case "integer":
-			e.data[k], err = strconv.Atoi64(val)
+			e.data[k], err = strconv.ParseInt(val,10,64)
 		case "float":
-			e.data[k], err = strconv.Atof64(val)
+			e.data[k], err = strconv.ParseFloat(val,64)
 		case "time":
-			e.data[k] = datastore.SecondsToTime(time.Seconds())
+			e.data[k] = time.Now()
 		case "key":
 			e.data[k], err = datastore.DecodeKey(val)
 		default:
 			c.Errorf("type_%s: %q", k, r.FormValue("type_"+k))
-			err = os.NewError("invalid field type")
+			err = &scmsError{"invalid field type"}
 		}
 		if err != nil {
 			return err
 		}
 	}
 	if len(name) != 0 {
-		e.data[name] = v, true
+		e.data[name] = v
 	}
 	if _, err := datastore.Put(c, k, &e); err != nil {
 		return err

@@ -1,16 +1,21 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
 	"os"
 	"io"
 	"fmt"
-	"http"
+	"net/http"
 	"bytes"
 	"archive/zip"
-	"template"
+	"html/template"
 	"appengine"
 	"appengine/user"
 	"appengine/datastore"
+	"time"
 )
 
 var editorTemplate = template.Must(template.New("editor").Parse(
@@ -49,17 +54,17 @@ func editorHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		case "/editor/pages.zip":
 			if err := exportPages(c, w); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 			}
 			return
 		case "/editor/groups.zip":
 			if err := exportGroups(c, w); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 			}
 			return
 		case "/editor/all.zip":
 			if err := exportAll(c, w); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 			}
 			return
 		default:
@@ -72,7 +77,7 @@ func editorHandler(w http.ResponseWriter, r *http.Request) {
 		data.ctx = c
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := editorTemplate.Execute(w, &data); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 		}
 		return
 	}
@@ -82,15 +87,15 @@ func editorHandler(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("action") == "upload" {
 		file, _, err := r.FormFile("file")
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			c.Errorf("can't get an archive with imported site: %q", err)
 			return
 		}
 		if n, err := file.Seek(0, os.SEEK_END); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else if err := importAll(c, file, n); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	}
@@ -99,7 +104,7 @@ func editorHandler(w http.ResponseWriter, r *http.Request) {
 
 var funcMap = template.FuncMap{"Type": isType, "EqualString": equalString}
 
-func equalString(i1 interface{}, i2 interface{}) (bool, os.Error) {
+func equalString(i1 interface{}, i2 interface{}) (bool, error) {
 	s1, ok := i1.(string)
 	if !ok {
 		return false, fmt.Errorf("invalid type of argument %T, must be string", i1)
@@ -111,7 +116,7 @@ func equalString(i1 interface{}, i2 interface{}) (bool, os.Error) {
 	return s1 == s2, nil
 }
 
-func isType(t interface{}, s string) (bool, os.Error) {
+func isType(t interface{}, s string) (bool, error) {
 	switch t.(type) {
 	case string:
 		return s == "string", nil
@@ -121,7 +126,7 @@ func isType(t interface{}, s string) (bool, os.Error) {
 		return s == "integer", nil
 	case float64:
 		return s == "float", nil
-	case datastore.Time:
+	case time.Time:
 		return s == "time", nil
 	case datastore.Key:
 		return s == "key", nil
@@ -129,7 +134,7 @@ func isType(t interface{}, s string) (bool, os.Error) {
 	return false, fmt.Errorf("type %T is unsupported", t)
 }
 
-func exportAll(c appengine.Context, w io.Writer) os.Error {
+func exportAll(c appengine.Context, w io.Writer) error {
 	b := bytes.NewBuffer(nil)
 	z := zip.NewWriter(b)
 	if wz, err := z.Create("files.zip"); err != nil {
@@ -154,7 +159,7 @@ func exportAll(c appengine.Context, w io.Writer) os.Error {
 	return nil
 }
 
-func importAll(c appengine.Context, file io.ReaderAt, size int64) os.Error {
+func importAll(c appengine.Context, file io.ReaderAt, size int64) error {
 	r, err := zip.NewReader(file, size)
 	if err != nil {
 		return err
@@ -194,13 +199,13 @@ func importAll(c appengine.Context, file io.ReaderAt, size int64) os.Error {
 
 type customReaderAt []byte
 
-func (this customReaderAt) ReadAt(p []byte, off int64) (n int, err os.Error) {
+func (this customReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
 	if off > int64(len(this)) {
-		return 0, os.EOF
+		return 0, io.EOF
 	}
 	n = copy(p, this[off:])
 	if n < len(p) {
-		return n, os.EOF
+		return n, io.EOF
 	}
 	return n, nil
 }

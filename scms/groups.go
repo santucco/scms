@@ -1,11 +1,15 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
-	"http"
-	"template"
+	"net/http"
+	"html/template"
 	"os"
 	"io"
-	"json"
+	"encoding/json"
 	"bytes"
 	"archive/zip"
 	"appengine"
@@ -66,7 +70,7 @@ func groupsHandler(w http.ResponseWriter, r *http.Request) {
 		data.ctx = c
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := groupsTemplate.Execute(w, &data); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 		}
 		return
 	} else if r.Method != "POST" {
@@ -76,26 +80,26 @@ func groupsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("action") == "upload" {
 		file, _, err := r.FormFile("file")
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			c.Errorf("can't get an archive with imported groups: %q", err)
 			return
 		}
 		if n, err := file.Seek(0, os.SEEK_END); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else if err := importGroups(c, file, n); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else if id := r.URL.Query().Get("id"); len(id) == 0 {
-		var err os.Error
+		var err error
 		err = newGroup(c, r)
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else if _, err := datastore.DecodeKey(id); err != nil {
-		error(c, w, err)
+		errorX(c, w, err)
 		return
 	} else {
 		// TODO: delete group?
@@ -111,13 +115,13 @@ func groupsEditor(w http.ResponseWriter, r *http.Request, n string) {
 		var e []interface{}
 		_, err := q.GetAll(c, &e)
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 		c.Infof("entities of %v: %#v", n, e)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := groupsTemplate.Execute(w, e); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 		}
 		return
 	} else if r.Method != "POST" {
@@ -127,10 +131,10 @@ func groupsEditor(w http.ResponseWriter, r *http.Request, n string) {
 	http.Redirect(w, r, r.URL.Path, http.StatusFound)
 }
 
-func newGroup(c appengine.Context, r *http.Request) os.Error {
+func newGroup(c appengine.Context, r *http.Request) error {
 	name := template.URLQueryEscaper(r.FormValue("name"))
 	if len(name) == 0 {
-		return os.NewError("field 'Name' must not be empty")
+		return &scmsError{"field 'Name' must not be empty"}
 	}
 	key := datastore.NewKey(c, "$Groups", name, 0, nil)
 	c.Infof("new key: %#v", key)
@@ -144,7 +148,7 @@ func newGroup(c appengine.Context, r *http.Request) os.Error {
 	return nil
 }
 
-func exportGroups(c appengine.Context, w io.Writer) os.Error {
+func exportGroups(c appengine.Context, w io.Writer) error {
 	q := datastore.NewQuery("$Groups")
 	var g []Group
 	if _, err := q.GetAll(c, &g); err != nil {
@@ -177,7 +181,7 @@ func exportGroups(c appengine.Context, w io.Writer) os.Error {
 	return nil
 }
 
-func importGroups(c appengine.Context, file io.ReaderAt, size int64) os.Error {
+func importGroups(c appengine.Context, file io.ReaderAt, size int64) error {
 	r, err := zip.NewReader(file, size)
 	if err != nil {
 		return err

@@ -1,7 +1,11 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import(
-	"http"
+	"net/http"
 	"appengine"
 	"appengine/user"
 )
@@ -15,7 +19,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	if u := user.Current(c); u == nil {
 		url, err := user.LoginURL(c, r.URL.String())
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 		http.Redirect(w, r, url, http.StatusFound)
@@ -32,7 +36,7 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	url, err := user.LogoutURL(c, r.URL.String())
 	if err != nil {
-		error(c, w, err)
+		errorX(c, w, err)
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)

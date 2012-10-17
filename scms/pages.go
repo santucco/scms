@@ -1,10 +1,14 @@
+// Copyright (c) 2012 Alexander Sychev. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package scms
 
 import (
-	"http"
-	"template"
+	"net/http"
+	"html/template"
 	"os"
-	"json"
+	"encoding/json"
 	"io"
 	"bytes"
 	"strings"
@@ -40,7 +44,7 @@ var pagesTemplate = template.Must(template.New("pages").Funcs(funcMap).Parse(
 		<legend>Default</legend>
 		<select name="default">
 			{{range $cursor}}
-				<option value={{.Key.Encode}} {{if  $default.Eq .Key}}selected{{end}}>{{.Data.Name}}
+				<option value={{.Key.Encode}} {{if  $default.Equal .Key}}selected{{end}}>{{.Data.Name}}
 			{{end}}
 		</select>
 		<input type="submit" value="Submit">
@@ -116,7 +120,7 @@ func pagesHandler(w http.ResponseWriter, r *http.Request) {
 	var key *datastore.Key
 	if id := r.URL.Query().Get("id"); len(id) != 0 {
 		if k, err := datastore.DecodeKey(id); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else {
 			key = k
@@ -125,7 +129,7 @@ func pagesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		if key != nil {
 			if err := getTemplate(w, c, r, key); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 			}
 			return
 		}
@@ -133,7 +137,7 @@ func pagesHandler(w http.ResponseWriter, r *http.Request) {
 		data.ctx = c
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := pagesTemplate.Execute(w, &data); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 		}
 		return
 	} else if r.Method != "POST" {
@@ -143,30 +147,30 @@ func pagesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("action") == "upload" {
 		file, _, err := r.FormFile("file")
 		if err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			c.Errorf("can't get an archive with imported pages: %q", err)
 			return
 		}
 		if n, err := file.Seek(0, os.SEEK_END); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		} else if err := importPages(c, file, n); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else if def := r.FormValue("default"); len(def) != 0 {
 		if err := setDefault(c, r, def); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	} else {
 		if key == nil {
 			if err := newPage(c, r); err != nil {
-				error(c, w, err)
+				errorX(c, w, err)
 				return
 			}
 		} else if err := editPage(c, r, key); err != nil {
-			error(c, w, err)
+			errorX(c, w, err)
 			return
 		}
 	}
@@ -174,7 +178,7 @@ func pagesHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, r.URL.Path, http.StatusFound)
 }
 
-func setDefault(c appengine.Context, r *http.Request, def string) os.Error {
+func setDefault(c appengine.Context, r *http.Request, def string) error {
 	k, err := datastore.DecodeKey(def)
 	if err != nil {
 		return err
@@ -190,18 +194,18 @@ func setDefault(c appengine.Context, r *http.Request, def string) os.Error {
 	return nil
 }
 
-func newPage(c appengine.Context, r *http.Request) os.Error {
+func newPage(c appengine.Context, r *http.Request) error {
 	name := template.URLQueryEscaper(r.FormValue("name"))
 	if len(name) == 0 {
-		return os.NewError("field 'Name' must not be empty")
+		return &scmsError{"field 'Name' must not be empty"}
 	}
 	base := r.FormValue("base")
 	if len(base) == 0 {
-		return os.NewError("field 'Base template' must not be empty")
+		return &scmsError{"field 'Base template' must not be empty"}
 	}
 	file := r.FormValue("file")
 	if len(file) == 0 {
-		return os.NewError("field  'Template' must not be empty")
+		return &scmsError{"field  'Template' must not be empty"}
 	}
 	key := datastore.NewKey(c, "$Pages", name, 0, nil)
 	c.Infof("new key: %#v", key)
@@ -217,7 +221,7 @@ func newPage(c appengine.Context, r *http.Request) os.Error {
 	return nil
 }
 
-func editPage(c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
+func editPage(c appengine.Context, r *http.Request, k *datastore.Key) error {
 	var p Page
 	if err := datastore.Get(c, k, &p); err != nil {
 		return err
@@ -231,9 +235,9 @@ func editPage(c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
 	return nil
 }
 
-func getTemplate(w http.ResponseWriter, c appengine.Context, r *http.Request, k *datastore.Key) os.Error {
+func getTemplate(w http.ResponseWriter, c appengine.Context, r *http.Request, k *datastore.Key) error {
 	if k.Kind() != "$Pages" {
-		return os.NewError("it is not a page")
+		return &scmsError{"it is not a page"}
 	}
 	var p Page
 	if err := datastore.Get(c, k, &p); err != nil {
@@ -244,7 +248,7 @@ func getTemplate(w http.ResponseWriter, c appengine.Context, r *http.Request, k 
 	return err
 }
 
-func exportPages(c appengine.Context, w io.Writer) os.Error {
+func exportPages(c appengine.Context, w io.Writer) error {
 	q := datastore.NewQuery("$Pages")
 	var p []Page
 	if _, err := q.GetAll(c, &p); err != nil {
@@ -268,7 +272,7 @@ func exportPages(c appengine.Context, w io.Writer) os.Error {
 	return nil
 }
 
-func importPages(c appengine.Context, file io.ReaderAt, size int64) os.Error {
+func importPages(c appengine.Context, file io.ReaderAt, size int64) error {
 	r, err := zip.NewReader(file, size)
 	if err != nil {
 		return err
