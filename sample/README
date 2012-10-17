@@ -1,0 +1,5 @@
+This is a very small sample for demonstration of basic ideas of SCMS.
+To run the sample launch SCMS in GAE environment, go to /editor (e.g. http://localhost:8080/editor), upload all.zip like an entire site.
+After that a default page should be set in /editor/pages ("Pages") to "albums". 
+The website is ready to use :-).
+
